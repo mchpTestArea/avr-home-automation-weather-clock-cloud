@@ -1,0 +1,62 @@
+{
+    "metaDataVersion": "1.0.0",
+    "category": "com.microchip.ide.project",
+    "content": {
+        "metaDataVersion": "1.3.0",
+        "name": "com.microchip.mcu8.python.project.atmega4808-air-quality-monitor-mplab",
+        "version": "1.0.4",
+        "displayName": "Indoor Air Quality Monitor",
+        "projectName": "atmega4808-air-quality-monitor-mplab",
+        "shortDescription": "This is the MPLAB X firmware associated with AN3403 Indoor Air Quality Monitor: Concept and Implementation.",
+        "ide": {
+            "name": "MPLAB X",
+            "semverRange": ">=5.35.0"
+        },
+        "compiler": [
+			{
+				"name": "AVR GCC",
+				"semverRange": "^5.4.0"
+			}
+		],
+        "dfp": {
+            "name": "Atmega_DFP",
+            "semverRange": "^2.1.87"
+        },
+        "configurator": {
+            "name": "MCC",
+            "semverRange": ">=3.95.0"
+        },
+        "device": {
+            "metaDataVersion": "1.0.0",
+            "category": "com.microchip.portal.contentRef",
+            "content": {
+                "metaDataVersion": "1.0.0",
+                "category": "com.microchip.device",
+                "versionRange": "*",
+				"name": "NA"
+            }
+        },
+        "author": "Microchip",
+        "peripherals": [
+            "ADC","USART","NVMCTRL","EVSYS","CCL","RTC","PIT","SPI","TWI","SLPCTRL"
+        ],
+        "keywords": [
+          "IoT",
+          "Wi-Fi",
+          "WINC1510",
+          "Cloud",
+          "Sensor Node"
+        ],
+		"additionalData": {
+			"longDescription": {
+				"metaDataVersion": "1.0.0",
+				"category": "com.microchip.portal.fileRef",
+				"content": {
+					"metaDataVersion": "1.0.0",
+					"fileName": "./README.md",
+					"mimeType": "text/markdown"
+				}
+			}
+		}
+	}
+}
