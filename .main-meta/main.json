@@ -3,10 +3,10 @@
     "category": "com.microchip.ide.project",
     "content": {
         "metaDataVersion": "1.3.0",
-        "name": "com.microchip.mcu8.python.project.atmega4808-air-quality-monitor-mplab",
+        "name": "com.microchip.mcu8.python.project.avr-home-automation-weather-clock-cloud",
         "version": "1.0.4",
         "displayName": "Indoor Air Quality Monitor",
-        "projectName": "atmega4808-air-quality-monitor-mplab",
+        "projectName": "avr-home-automation-weather-clock-cloud",
         "shortDescription": "This is the MPLAB X firmware associated with AN3403 Indoor Air Quality Monitor: Concept and Implementation.",
         "ide": {
             "name": "MPLAB X",
