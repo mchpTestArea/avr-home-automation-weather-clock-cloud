@@ -27,11 +27,6 @@ pipeline {
     }
 
     stages {
-        stage('Checkout') {
-            steps {
-				checkout scm
-            }
-        }	
 		stage('pre-requisite'){		
 			def version = "${jsonObj.content.version}".trim()
 			repoName = env.GIT_URL.replaceFirst(/^.*\/([^\/]+?).git$/, '$1')
@@ -67,103 +62,54 @@ pipeline {
 			println "DEPLOY_TO_PORTAL_AND_GITHUB: $DEPLOY_TO_PORTAL_AND_GITHUB"
 			println "ADD_TECH_PUB_AS_REVIEWERS: $ADD_TECH_PUB_AS_REVIEWERS"
 		}
-		/*stage('metadata-validation'){
-			if(RUN_METADATA_STAGE == true){
-				parallel([
-					CITD_tool:{
-						download("metadata-schema",tool_version['metadata-schema'])
-						download("tool-metadata-validator",tool_version['tool-metadata-validator'])										
-						def exitCode = sh(script: "cd tool-metadata-validator && python metadata-validator.py -data ../.main-meta/main.json -schema ../metadata-schema/main-schema.json", returnStatus: true)
-						if(exitCode == 43 ){
-							println "Keywords or peripherals used in metadata not from list of approved keywords"
-							def url = "https://bitbucket.microchip.com/rest/api/1.0/projects/${bitbucketSlug}/repos/${repoName}/pull-requests/${prNum}/comments/"
-							blueOceanURL = blueOceanURL+"${jobName}/detail/${env.BRANCH_NAME}/${env.BUILD_NUMBER}/pipeline"
-							def data = """{"text":"Keywords or peripherals used in metadata not from list of approved keywords, find the violated keywords in metadata stage: ${blueOceanURL}, if they are neccessary please ask admin to check this task","severity":"BLOCKER"}"""
-							withCredentials([usernamePassword(credentialsId: 'Bitbucket_Admin_Access_For_8bit_Examples', usernameVariable: 'USER_NAME', passwordVariable:'USER_PASS' )]) {					
-								sh "curl -u ${USER_NAME}:${USER_PASS} -H 'Content-Type: application/json' -X POST ${url} -d '${data}'"
-							}
-						}
-						else if(exitCode == 1){
-							println("Metadata does not follow schema, please follow schema defined in https://confluence.microchip.com/display/MCA/QA_Doc+-+Metadata+Schema+3.0.0#QA_DocMetadataSchema3.0.0-Stepstomanuallymigratetometadataschema(v1.3.0)")
-							execute("cd tool-metadata-validator && python metadata-validator.py -data ../.main-meta/main.json -schema ../metadata-schema/main-schema.json")
-						}
-
-						def githubObj = getGiHubInfo()
-
-						if(githubObj.repoName != jsonObj.content.projectName) {
-							execute("echo 'Project name in metadata file does not match with GitHub repository name.' && exit 1")						
-						}
+        stage('github-deploy') {
+			if(DEPLOY_TO_PORTAL_AND_GITHUB == true) {
+				def topicsAsString = getTopics()
+				def githubObj = getGiHubInfo()					
+				download("tool-github-deploy",tool_version['tool-github-deploy'])		
+				execute("chmod +x ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py")  
 						
-						if(DEPLOY_TO_PORTAL_AND_GITHUB == true) {
-							if(env.TAG_NAME != jsonObj.content.version) {
-								execute("echo 'Version in metadata file does not match with TAG_NAME.' && exit 1") 
-							}
-						}
-					},
-					portal_CLI:{
-						def cmdArgs = "../.main-meta/main.json"				
-						execute("git clone --depth=1 https://bitbucket.microchip.com/scm/portal/bundles.git")	
-						execute("cd bundles && chmod 755 ./portal-client-cli-linux")
-						download("tool-portal-client-launcher",tool_version['tool-portal-client-launcher'])
-						execute("cd tool-portal-client-launcher && node portalLauncher.js -app=../bundles/portal-client-cli-linux -cmd=\"verifyMetadata ${cmdArgs}\"")
-					}
-				])
+				withCredentials([usernamePassword(credentialsId: 'BD1085_GitHub_Token', usernameVariable: 'USER_NAME', passwordVariable:'USER_PASS' )]) {					
+					//execute("python ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py -rpo=true -gpat=${USER_PASS}  -rpn=${githubObj.repoName} -rpp=true -rpt=${topicsAsString}")	
+					execute("python ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py -deploy=true -gpat=${USER_PASS} -dgid=${USER_NAME} -dburl=${env.BITBUCKET_URL} -dgurl=${env.GITHUB_URL} -dtag=${env.TAG_NAME} -dmfd=true -digmc=true")						
+					download("tool-zip-hex-file",tool_version['tool-zip-hex-file'])
+					execute("pip install xmltodict")
+					//execute("cp ./tool-zip-hex-file/zip-hex.py ./")
+					//execute("python zip-hex.py --tagName ${env.TAG_NAME}")
+					execute("python ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py -rlo=true -gpat=${USER_PASS}  -rpn=${githubObj.repoName} -rltv=${env.TAG_NAME} -rltt=${env.TAG_NAME}")	
+				}
+				sendSuccessfulGithubDeploymentEmail()
 			}
 			else{
-				println "Skipping metadata-validation stage"
-				Utils.markStageSkippedForConditional('metadata-validation')
-			}
-		}*/
-        stage('Deploy') {
-			stage('github-deploy') {
-				if(DEPLOY_TO_PORTAL_AND_GITHUB == true) {
-					def topicsAsString = getTopics()
-					def githubObj = getGiHubInfo()					
-					download("tool-github-deploy",tool_version['tool-github-deploy'])		
-					execute("chmod +x ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py")  
-							
-					withCredentials([usernamePassword(credentialsId: 'BD1085_GitHub_Token', usernameVariable: 'USER_NAME', passwordVariable:'USER_PASS' )]) {					
-						//execute("python ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py -rpo=true -gpat=${USER_PASS}  -rpn=${githubObj.repoName} -rpp=true -rpt=${topicsAsString}")	
-						execute("python ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py -deploy=true -gpat=${USER_PASS} -dgid=${USER_NAME} -dburl=${env.BITBUCKET_URL} -dgurl=${env.GITHUB_URL} -dtag=${env.TAG_NAME} -dmfd=true -digmc=true")						
-						download("tool-zip-hex-file",tool_version['tool-zip-hex-file'])
-						execute("pip install xmltodict")
-						//execute("cp ./tool-zip-hex-file/zip-hex.py ./")
-						//execute("python zip-hex.py --tagName ${env.TAG_NAME}")
-						execute("python ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py -rlo=true -gpat=${USER_PASS}  -rpn=${githubObj.repoName} -rltv=${env.TAG_NAME} -rltt=${env.TAG_NAME}")	
-					}
-					sendSuccessfulGithubDeploymentEmail()
-				}
-				else{
-					echo "Skipping github-deploy stage"
-					Utils.markStageSkippedForConditional('github-deploy')
-				}			
-			}
-			
-			stage('portal-deploy') {
-				if(DEPLOY_TO_PORTAL_AND_GITHUB == true){
-					def metadata = readJSON file:".main-meta/main.json"					
-					def version = metadata.content.version
-					def project = metadata.content.projectName
+				echo "Skipping github-deploy stage"
+				Utils.markStageSkippedForConditional('github-deploy')
+			}			
+		}
+		
+		stage('portal-deploy') {
+			if(DEPLOY_TO_PORTAL_AND_GITHUB == true){
+				def metadata = readJSON file:".main-meta/main.json"					
+				def version = metadata.content.version
+				def project = metadata.content.projectName
 
-					if(version == env.TAG_NAME) {				
-						def cmdArgs = "'{\"repoOwnerName\":\"$env.GITHUB_OWNER\",\"repoName\":\"$project\",\"tagName\":\"$version\"}'"
-						cmdArgs = cmdArgs.replaceAll("\"","\\\\\"")						
-					
-						execute("git clone --depth=1 https://bitbucket.microchip.com/scm/portal/bundles.git")
-						execute("cd bundles && chmod 755 ./portal-client-cli-linux")						
-						download("tool-portal-client-launcher",tool_version['tool-portal-client-launcher'])
-						execute("cd tool-portal-client-launcher && node portalLauncher.js -app=../bundles/portal-client-cli-linux -cmd=\"uploadGitHub ${cmdArgs}\" -srv=staging")
-						sendSuccessfulPortalDeploymentEmail()
-					} else {
-						execute("echo 'Tag name is not equal to metadata content version.' && exit 1")
-					}
-				}
-				else{
-					echo "Skipping portal-deploy stage"
-					Utils.markStageSkippedForConditional('portal-deploy')
+				if(version == env.TAG_NAME) {				
+					def cmdArgs = "'{\"repoOwnerName\":\"$env.GITHUB_OWNER\",\"repoName\":\"$project\",\"tagName\":\"$version\"}'"
+					cmdArgs = cmdArgs.replaceAll("\"","\\\\\"")						
+				
+					execute("git clone --depth=1 https://bitbucket.microchip.com/scm/portal/bundles.git")
+					execute("cd bundles && chmod 755 ./portal-client-cli-linux")						
+					download("tool-portal-client-launcher",tool_version['tool-portal-client-launcher'])
+					execute("cd tool-portal-client-launcher && node portalLauncher.js -app=../bundles/portal-client-cli-linux -cmd=\"uploadGitHub ${cmdArgs}\" -srv=staging")
+					sendSuccessfulPortalDeploymentEmail()
+				} else {
+					execute("echo 'Tag name is not equal to metadata content version.' && exit 1")
 				}
 			}
-        }		
+			else{
+				echo "Skipping portal-deploy stage"
+				Utils.markStageSkippedForConditional('portal-deploy')
+			}
+		}		
 	}
 
     post {
