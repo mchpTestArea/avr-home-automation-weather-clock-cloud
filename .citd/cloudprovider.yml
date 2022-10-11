@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: avr8-mplabx
+  name: xc8-mplabx
 spec:
   containers:
-    - name: avr8-mplabx
-      image: artifacts.microchip.com:7999/microchip/citd/bundles/avr8-mplabx:latest
+    - name: xc8-mplabx
+      image: artifacts.microchip.com:7999/microchip/citd/bundles/xc8-mplabx:latest
       imagePullPolicy: Always
       command: ['cat']
       tty: true
