@@ -1,4 +1,5 @@
 // Jenkinsfile v2.0.0
+import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
 pipeline {
     agent {
         kubernetes {
@@ -19,24 +20,60 @@ pipeline {
 		BITBUCKET_URL = 'https://bitbucket.microchip.com/scm/~i64056/avr-home-automation-weather-clock-cloud.git'
 		SEMVER_REGEX = '^(0|[1-9]\\d*)+\\.(0|[1-9]\\d*)+\\.(0|[1-9]\\d*)+$'
 		ARTIFACTORY_SERVER = 'https://artifacts.microchip.com:7999/artifactory'
+		RUN_METADATA_STAGE = false
+		DEPLOY_TO_PORTAL_AND_GITHUB = false
 	}	
 	options {
 		timestamps()
 		timeout(time: 30, unit: 'MINUTES')
 	}
+
 	stages {
-		stage('setup') {
-		    steps {
-				script {
-					withCredentials([usernamePassword(credentialsId: 'Bitbucket_Admin_Access_For_8bit_Examples', usernameVariable: 'USER_NAME', passwordVariable:'USER_PASS' )]){
-						execute("git clone https://${USER_NAME}:${USER_PASS}@bitbucket.microchip.com/scm/~i64056/mpae-buildpipeline-groovy-scripts.git")
+		stage('github-deploy') {
+			steps{
+				script{
+					def githubObj = getGiHubInfo()					
+					download("tool-github-deploy","1.4.0")		
+					execute("chmod +x ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py")  
+							
+					withCredentials([usernamePassword(credentialsId: '8bit-examples.github.com', usernameVariable: 'USER_NAME', passwordVariable:'USER_PASS' )]) {					
+						execute("python ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py -deploy=true -gpat=${USER_PASS} -dgid=${USER_NAME} -dburl=${env.BITBUCKET_URL} -dgurl=${env.GITHUB_URL} -dtag=${env.TAG_NAME} -dmfd=true -digmc=true")						
+						download("tool-zip-hex-file","1.2.0")
+						execute("pip install xmltodict")
+						//execute("cp ./tool-zip-hex-file/zip-hex.py ./")
+						//execute("python zip-hex.py --tagName ${env.TAG_NAME}")
+						//execute("python ./tool-github-deploy/tool-github-deploy/tool-github-deploy.py -rlo=true -gpat=${USER_PASS}  -rpn=${githubObj.repoName} -rltv=${env.TAG_NAME} -rltt=${env.TAG_NAME} -rlua=./hex-files.zip")		
 					}
-					def buildPipeline = load ('mpae-buildpipeline-groovy-scripts/xc8mplabx-buildpipeline.groovy')
-					buildPipeline.runStages()
+					sendSuccessfulGithubDeploymentEmail()
 				}
-            }
+			}			
 		}
-	}	
+		
+		stage('portal-deploy') {
+
+			steps{
+				script{
+					def metadata = readJSON file:".main-meta/main.json"					
+					def version = metadata.content.version
+					def project = metadata.content.projectName
+
+					if(version == env.TAG_NAME) {				
+						def cmdArgs = "'{\"repoOwnerName\":\"$env.GITHUB_OWNER\",\"repoName\":\"$project\",\"tagName\":\"$version\"}'"
+						cmdArgs = cmdArgs.replaceAll("\"","\\\\\"")						
+					
+						execute("git clone --depth=1 https://bitbucket.microchip.com/scm/portal/bundles.git")
+						execute("cd bundles && chmod 755 ./portal-client-cli-linux")						
+						download("tool-portal-client-launcher","1.3.0")
+						execute("cd tool-portal-client-launcher && node portalLauncher.js -app=../bundles/portal-client-cli-linux -cmd=\"uploadGitHub ${cmdArgs}\" -srv=staging")
+						sendSuccessfulPortalDeploymentEmail()
+					} else {
+						execute("echo 'Tag name is not equal to metadata content version.' && exit 1")
+					}
+				}
+			}
+		}
+	}
+	
 	post {
         failure {			
             script {			
@@ -56,4 +93,78 @@ def sendPipelineFailureEmail() {
     mail to: "${env.EMAILLIST},${params.NOTIFICATION_EMAIL}",
     subject: "Failed Pipeline: ${currentBuild.fullDisplayName}",
     body: "Pipeline failure. ${env.BUILD_URL}"
+}
+
+def download(String toolName,String toolVersion) {
+	def repo = "ivy/citd"
+	def url = "${env.ARTIFACTORY_SERVER}/${repo}/${toolName}/${toolVersion}/${toolName}-${toolVersion}.zip"
+	def response =sh(script:"curl ${url} -o ${toolName}.zip",returnStdout: true).trim()
+	unzip dir:"${toolName}", quiet: true, zipFile: "${toolName}.zip"	
+	execute("rm -rf ${toolName}.zip")
+}
+
+def getGiHubInfo() {
+	def githubObj = [
+		'ownerName':'',
+		'repoName':''
+		]
+	String[] splitURLString = "${env.GITHUB_URL}".split("/")
+	githubObj.repoName = splitURLString[splitURLString.size()-1]
+	githubObj.repoName = githubObj.repoName.replace(".git","")
+	githubObj.ownerName = splitURLString[splitURLString.size()-2]
+	return githubObj
+}
+
+def deployReport(String src) {
+	def source = src	
+	def files = findFiles glob: "${source}" 
+	if( files.length > 0 ) {
+		//def repository = 'mcu8-bin/8bit-Example'	
+		def repository = 'citd/report'
+		def slug = GIT_URL.tokenize('/')[4]
+		slug = slug.substring(0, slug.lastIndexOf('.')) //Remove .git
+		def sourceZipFile = "${slug}-${env.BRANCH_NAME}.${env.BUILD_NUMBER}.zip"
+		def targetZipFile = "${env.ARTIFACTORY_SERVER}/${repository}/${slug}/${env.BRANCH_NAME}/${slug}-${env.BRANCH_NAME}.${env.BUILD_NUMBER}.zip"
+		zip archive: false, glob: "${source}",zipFile: "${sourceZipFile}"
+		execute("curl -T ${sourceZipFile} ${targetZipFile}")	
+		execute("rm -rf ${sourceZipFile}")
+		sendReportEmail(targetZipFile)
+	}
+}
+
+def createEmailList(){
+    execute("python3 -m pip install jira")
+	//def tool_version = readProperties  file: './mpae-buildpipeline-groovy-scripts/tool.properties'
+	download("tool-get-email-address","1.2.0")
+	withCredentials([usernamePassword(credentialsId: 'Jira-acess-Credentials', usernameVariable: 'JiraID', passwordVariable:'JiraPassword' )]) {					
+		execute("cd tool-get-email-address && python3 emailAddressFromJira.py -id ${JiraID} -tkn ${JiraPassword}")
+	}
+	env.JIRAEMAIL = readFile('email.txt')
+	if(!"${env.CHANGE_AUTHOR_EMAIL}".equalsIgnoreCase("null")) {
+		env.EMAILLIST = env.CHANGE_AUTHOR_EMAIL
+	}else if (env.JIRAEMAIL?.trim()) {
+        env.EMAILLIST = env.JIRAEMAIL
+    }else{
+		env.EMAILLIST = params.NOTIFICATION_EMAIL
+	}
+	execute("echo ${env.EMAILLIST}")
+
+}
+
+def sendReportEmail(String reportFile) {
+    mail to: "${env.EMAILLIST}",
+    subject: "Report: ${currentBuild.fullDisplayName}",
+    body: "Report: ${reportFile}"
+}
+
+def sendSuccessfulGithubDeploymentEmail() {
+    emailext( to: "${env.EMAILLIST}",
+    subject: "Successful Github Deployment: ${currentBuild.fullDisplayName}",
+    body: "The changes have been successfully deployed to GitHub. ${env.GITHUB_URL}")
+}
+
+def sendSuccessfulPortalDeploymentEmail() {
+    emailext( to: "${env.EMAILLIST}",
+    subject: "Successful Portal Deployment: ${currentBuild.fullDisplayName}",
+    body: "The changes have been successfully deployed to Discover Portal.")
 }
